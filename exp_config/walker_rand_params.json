@@ -1,0 +1,52 @@
+{
+    "env_name": "walker-rand-params",
+    "n_train_tasks": 20,
+    "n_eval_tasks": 4,
+    "env_params": {
+        "n_tasks": 24,
+        "randomize_tasks": 0
+    },
+    "util_params": {
+        "base_log_dir": "/home/junsu/workspace/MerPO/logs/walker-rand-params/20220419/inner_need_delete"
+    },
+    "algo_params": {
+        "real_data_ratio": 0.5,
+        "horizon": 1,
+
+        "num_iterations": 500,
+        "use_next_obs_in_context": true,
+        "meta_batch": 4,
+        "num_initial_steps": 2000,
+        "num_steps_prior": 400,
+        "num_steps_posterior": 0,
+        "num_extra_rl_steps_posterior": 600,
+        "num_train_steps_per_itr": 100,
+        "num_evals": 10,
+        "num_steps_per_eval": 600,
+        "num_exp_traj_eval": 2,
+        "embedding_batch_size": 100,
+        "embedding_mini_batch_size": 100,
+        "train_epoch": 50000,
+        "eval_epoch": 50000,
+        "n_trj": 50,
+        "sparse_rewards": 0,
+        "use_information_bottleneck": 0,
+        "allow_backward_z": 0,
+        "z_loss_weight": 10,
+        "alpha_init": 1e4,
+        "alpha_max": 2e4,
+        "dump_eval_paths": false,
+        "data_dir": "/home/junsu/workspace/MerPO/data/new-walker-rand-params",
+        "layer_num": 5,
+        "num_test_steps_per_itr": 1,
+        "test_only_inner_step": 500,
+        "num_updates": 1,
+        "explore":1,
+        "min_q_weight":1,
+        "lagrange_thresh":5.0,
+        "type_q_backup":"medium",
+        "finetune_model": "inner",
+        "checkpoint_paths_0": "/home/junsu/workspace/MerPO/MerPO_model/author_model/walker/checkpoint_Iter_1230",
+        "checkpoint_paths_1": "/home/junsu/workspace/MerPO/MerPO_model/author_model/walker/test_checkpoint_Iter_1230"
+    }
+}

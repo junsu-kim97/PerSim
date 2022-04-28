@@ -64,7 +64,7 @@ class Simulator_net(torch.nn.Module):
         self.d_m = d_m
 
     def forward(self, args):
-        (u, i, m) = args
+        (u, i, m) = args  # u: task_id, i: action, m: state (change)
         u = self.lin_u(u)
         m = (m-self.means_state)/self.stds_state
         
@@ -144,10 +144,10 @@ class Simulator(Env):
         loss_fn = torch.nn.MSELoss(reduction='mean')
         for t in tqdm(range(iterations)):
             # Training
-            for batch in data_loader:
+            for i, batch in enumerate(data_loader):
                 # Forward pass
                 u_data, i_data,m_data, y_data = batch
-                y_data = (y_data -self.model.means)/self.model.stds
+                y_data = (y_data - self.model.means)/self.model.stds
                 y_pred = self.model((u_data, i_data, m_data))
 
                 # Compute and print loss

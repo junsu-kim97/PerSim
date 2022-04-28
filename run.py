@@ -57,7 +57,7 @@ def test_simulator(simulator_name, env_name, device, num_episodes, T = 50):
 
     # load env_name
     env_config = get_environment_config(env_name)
-    N = env_config['number_of_units']
+    N = env_config['number_of_units'] if not args.debug else 1
     env = env_config['env']
     
     if discerte_action:  action_dim = env().action_space.n
@@ -439,6 +439,9 @@ parser.add_argument('--no_normalize_output', dest = 'normalize_output',  action=
 parser.add_argument('--num_episodes', type=int, default=200, help='gpu device id')
 parser.add_argument('--num_mpc_evals', type=int, default=20, help='number of MPC episodes')
 parser.add_argument('--num_simulators', type=int, default=5, help='number of models')
+parser.add_argument('--iterations', type=int, default=300)
+parser.add_argument('--debug', action="store_true")
+
 
 
 parser.set_defaults(delta=True)
@@ -463,7 +466,7 @@ for i in range(args.num_simulators):
   print(f'Train the {i}-th simulator')
   print('=='*10)
   filename = f'{args.dataname}_{args.lag}_{args.r}_{delta}_{i}_{args.trial}'
-  train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = 300, filename = filename)
+  train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = args.iterations, filename = filename)
   simulators.append(filename)
 
 
