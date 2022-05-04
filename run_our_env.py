@@ -21,6 +21,24 @@ from configs.default import default_config
 import os, json
 from utils import deep_update_dict
 
+from trajectory.utils.envs.cheetah_rand_params_wrapper import HalfCheetahRandParamsWrappedEnv
+from trajectory.utils.envs.walker_rand_params_wrapper import WalkerRandParamsWrappedEnv
+from trajectory.utils.envs.hopper_rand_params_wrapper import HopperRandParamsWrappedEnv
+from trajectory.utils.envs.humanoid_rand_params_wrapper import HumanoidRandParamsWrappedEnv
+
+def create_meta_env(env_name, data_dir, n_tasks, max_episode_steps=600):
+    if env_name == "walker-rand-params":
+        env = WalkerRandParamsWrappedEnv(data_dir=data_dir, n_tasks=n_tasks, randomize_tasks=False, max_episode_steps=max_episode_steps)
+    elif env_name == "hopper-rand-params":
+        env = HopperRandParamsWrappedEnv(data_dir=data_dir, n_tasks=n_tasks, randomize_tasks=False, max_episode_steps=max_episode_steps)
+    elif env_name == "humanoid-rand-params":
+        env = HumanoidRandParamsWrappedEnv(data_dir=data_dir, n_tasks=n_tasks, randomize_tasks=False, max_episode_steps=max_episode_steps)
+    elif env_name == "cheetah-rand-params":
+        env = HalfCheetahRandParamsWrappedEnv(data_dir=data_dir, n_tasks=n_tasks, randomize_tasks=False, max_episode_steps=max_episode_steps)
+    env.name = env_name
+    return env
+
+
 class Dynamics(DynamicsFunc):
     """
 
@@ -33,14 +51,18 @@ class Dynamics(DynamicsFunc):
         else:
             action_dim = self.env.action_space.shape[0]
         state_dim = self.env.observation_space.shape[0]
-        env_name = sim.split('_')[0]
-        rank = int(sim.split('_')[5])
-        lag = int(sim.split('_')[4])
-        delta = sim.split('_')[6][:5] == 'delta'
-        self.delta = delta
-        self.sim = Simulator(N, action_dim, state_dim, rank, device, lags=lag, state_layers=state_layers[env_name],
+        if isinstance(sim, str):
+            env_name = sim.split('_')[0]
+            rank = int(sim.split('_')[5])
+            lag = int(sim.split('_')[4])
+            delta = sim.split('_')[6][:5] == 'delta'
+            self.delta = delta
+            self.sim = Simulator(N, action_dim, state_dim, rank, device, lags=lag, state_layers=state_layers[env_name],
                              action_layers=action_layers[env_name], continous_action=not discerte_action, delta=delta)
-        self.sim.load(f'simulator/trained/{sim}')
+            self.sim.load(f'simulator/trained_ours/{sim}')
+        else:
+            self.sim = sim
+
         self.N = N
         self.reward_fun = self.env.torch_reward_fn()
         self.done_fn = self.env.torch_done_fn()
@@ -82,7 +104,7 @@ def test_simulator(simulator_name, env_name, device, num_episodes, T=50):
     sim = Simulator(N, action_dim, state_dim, rank, device, lags=lag, continous_action=not discerte_action,
                     state_layers=state_layers[env_name], action_layers=action_layers[env_name], delta=delta)
 
-    sim.load(f'simulator/trained/{simulator_name}')
+    sim.load(f'simulator/trained_ours/{simulator_name}')
 
     # load policy
     policy_name = f'{env_name}_{policy_class[env_name]}_test'
@@ -152,7 +174,8 @@ def test_simulator(simulator_name, env_name, device, num_episodes, T=50):
     data.to_csv(f'simulator/results/{simulator_name}_mse_results.csv')
 
 
-def test_simulators_ens(simulators, env_name, data_test_pred, device, num_episodes, N, env_config, delta=True, lag=1, T=50):
+def test_simulators_ens(simulators, env_name, data_test_adapt, data_test_pred, device, num_episodes, N, env_config,
+                        adapt_iteration, task_id, delta=True, lag=1, T=50):
     ## Discrete or continous action?
     if env_name in discerte_action_envs:
         discrete_action = True
@@ -163,6 +186,17 @@ def test_simulators_ens(simulators, env_name, data_test_pred, device, num_episod
         action_dim = env_config['env']().action_space.n
     else:
         action_dim = env_config['env']().action_space.shape[0]
+
+    traj_test_adapt, traj_test_adapt_lenghts = segment(
+        data_test_adapt["states"],
+        data_test_adapt["actions"],
+        data_test_adapt["rewards"],
+        data_test_adapt["dones"],
+        data_test_adapt['task_id']
+    )
+    u_data_adapt, i_data_adapt, m_data_adapt, y_data_adapt = format_data_from_merpo_style(traj_test_adapt, N,
+                                                                                      device, delta, discrete_action,
+                                                                                      action_dim, lag)
 
     traj_test, traj_test_lengths = segment(
         data_test_pred["states"],
@@ -201,16 +235,19 @@ def test_simulators_ens(simulators, env_name, data_test_pred, device, num_episod
         delta = simulator_name.split('_')[6][:5] == 'delta'
         sim = Simulator(N, action_dim, state_dim, rank, device, lags=lag, continous_action=not discerte_action,
                         state_layers=state_layers[env_name], action_layers=action_layers[env_name], delta=delta)
-        sim.load(f'simulator/trained/{simulator_name}')
+        sim.load(f'simulator/trained_ours/{simulator_name}')
+        sim.train([u_data_adapt, i_data_adapt, m_data_adapt[:, :state_dim * lag], y_data_adapt], it=adapt_iteration,
+                  learning_rate=1e-4)
+        sim.save(f'simulator/trained_ours/{filename}_finetune_task_{task_id}')
         sims.append(sim)
 
     # init parameters
-    n_episodes = num_episodes
-    test_covaraites = env_config['test_env']
-    n_t = len(test_covaraites)
-    data = []
+    # n_episodes = num_episodes
+    # test_covaraites = env_config['test_env']
+    # n_t = len(test_covaraites)
+    # data = []
     # init trajecotry storage
-    indices = np.arange(5)
+    # indices = np.arange(5)
     # MSE_all = np.zeros([len(indices), 2, n_episodes])
 
     MSE = []
@@ -232,7 +269,8 @@ def test_simulators_ens(simulators, env_name, data_test_pred, device, num_episod
     # print(data)
     # data.to_csv(f'simulator/results/{simulator_name}_mse_results_ens.csv')
     print(MSE_all)
-    np.save(f'simulator/results/{simulator_name}_metrics.npy', MSE_all)
+    # np.save(f'simulator/results/{simulator_name}_metrics.npy', MSE_all)
+    return MSE_all, sims
 
 
 def format_data(data, number_of_units, device, delta, discerte_action, action_dim, lags=1):
@@ -282,7 +320,7 @@ def format_data(data, number_of_units, device, delta, discerte_action, action_di
     return U.to(device), I.to(device), M.to(device), Y.to(device)
 
 
-def train(dataname, data_train, data_test_adapt, N, env, rank, device, delta=True,
+def train(dataname, data_train, N, env, rank, device, delta=True,
           normalize_state=True, normalize_output=True, lag=1, iterations=300, adapt_iterations=30,
           filename=None, debug=False):
     # config env
@@ -316,15 +354,15 @@ def train(dataname, data_train, data_test_adapt, N, env, rank, device, delta=Tru
     u_data, i_data, m_data, y_data = format_data_from_merpo_style(traj_train, N,
                                                                   device, delta, discerte_action, action_dim, lag)
 
-    traj_test_adapt, traj_test_adapt_lenghts = segment(
-        data_test_adapt["states"],
-        data_test_adapt["actions"],
-        data_test_adapt["rewards"],
-        data_test_adapt["dones"],
-        data_test_adapt['task_id']
-    )
-    u_data_test, i_data_test, m_data_test, y_data_test = format_data_from_merpo_style(traj_test_adapt, N,
-                                                                                      device, delta, discerte_action, action_dim, lag)
+    # traj_test_adapt, traj_test_adapt_lenghts = segment(
+    #     data_test_adapt["states"],
+    #     data_test_adapt["actions"],
+    #     data_test_adapt["rewards"],
+    #     data_test_adapt["dones"],
+    #     data_test_adapt['task_id']
+    # )
+    # u_data_test, i_data_test, m_data_test, y_data_test = format_data_from_merpo_style(traj_test_adapt, N,
+    #                                                                                   device, delta, discerte_action, action_dim, lag)
 
     loss_fn = torch.nn.MSELoss(reduction='mean')
     # state_dim = y_data.shape[1]
@@ -354,11 +392,11 @@ def train(dataname, data_train, data_test_adapt, N, env, rank, device, delta=Tru
     sim.train([u_data, i_data, m_data[:, :state_dim * lag], y_data], it=iterations, learning_rate=1e-3)
 
     # finetune
-    sim.train([u_data_test, i_data_test, m_data_test[:, :state_dim * lag], y_data_test], it=iterations, learning_rate=1e-4)
-    sim.save(f'simulator/trained/{filename}')
+    # sim.train([u_data_test, i_data_test, m_data_test[:, :state_dim * lag], y_data_test], it=iterations, learning_rate=1e-4)
+    sim.save(f'simulator/trained_ours/{filename}')
 
 
-def eval_policy(simulators_, env_name, num_evaluations, N, config, seed, device):
+def eval_policy(simulators_, filename, env_name, test_id, num_evaluations, N, config, seed, device):
     env_config = get_environment_config(env_name)
     if env_name in discerte_action_envs:
         discerte_action = True
@@ -372,90 +410,116 @@ def eval_policy(simulators_, env_name, num_evaluations, N, config, seed, device)
 
     state_dimension = env_config['env']().observation_space.shape[0]
 
-    res = np.zeros([len(env_config['test_env']) * num_evaluations, 3])
+    # res = np.zeros([len(env_config['test_env']) * num_evaluations, 4])
     # N = env_config['number_of_units']
-    j = 0
-    for tt, tests in enumerate(env_config['test_env'][:]):
+    # j = 0
+    # for tt, tests in enumerate(env_config['test_env'][:]):
+    # for test_id in test_tasks:
         # if tt != 3 and tt!= 3: continue
         # parameters = dict(zip(env_config['covariates'], tests))
         # env = env_config['env'](**parameters)
 
-        variant = default_config
-        if config:
-            with open(os.path.join(config)) as f:
-                exp_params = json.load(f)
-            variant = deep_update_dict(exp_params, variant)
-        variant['util_params']['gpu_id'] = 0  # gpu
+    variant = default_config
+    if config:
+        with open(os.path.join(config)) as f:
+            exp_params = json.load(f)
+        variant = deep_update_dict(exp_params, variant)
+    variant['util_params']['gpu_id'] = 0  # gpu
 
-        if 'normalizer.npz' in os.listdir(variant['algo_params']['data_dir']):
-            obs_absmax = np.load(os.path.join(variant['algo_params']['data_dir'], 'normalizer.npz'))['abs_max']
-            env = NormalizedBoxEnv(ENVS[variant['env_name']](**variant['env_params']), obs_absmax=obs_absmax)
+    if 'normalizer.npz' in os.listdir(variant['algo_params']['data_dir']):
+        obs_absmax = np.load(os.path.join(variant['algo_params']['data_dir'], 'normalizer.npz'))['abs_max']
+        env = NormalizedBoxEnv(ENVS[variant['env_name']](**variant['env_params']), obs_absmax=obs_absmax)
+    else:
+        env = NormalizedBoxEnv(ENVS[variant['env_name']](**variant['env_params']))
+    # env = create_meta_env(env_name=variant['env_name'], data_dir=variant['algo_params']['data_dir'],
+    #                       n_tasks=N, max_episode_steps=variant['max_steps'])
+    env.seed(seed)
+    # env.reset_task(tests)
+    env.reset_task(test_id)
+
+    num_log_per_episode = int(env._max_episode_steps / 50) + 1
+    res = np.zeros([len(env_config['test_env']) * num_evaluations * num_log_per_episode, 4])
+    j = 0
+
+    th = mpc_parameters[env_name]['time_horizon']
+    num_rollouts = mpc_parameters[env_name]['num_rollouts']
+    num_elites = 50
+    num_iterations = 5
+    max_action = mpc_parameters[env_name]['max_action']
+    mountainCar = env_name == 'mountainCar'
+
+    if simulators_ is None:
+        print("use true dynamics")
+        simulators = [Dynamics(env, env, discerte_action, N, test_id, device)]
+    else:
+        simulators = [Dynamics(simulator, env, discerte_action, N, test_id, device) for simulator in simulators_]
+
+    mpc = MPC_M(dynamics_func=simulators, state_dimen=state_dimension, action_dimen=action_dimension,
+                time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites,
+                num_iterations=num_iterations, disceret_action=discerte_action, mountain_car=mountainCar,
+                max_action=max_action)
+
+    sum_reward = 0
+    observation = env.reset()
+    k = 0
+    i = 0
+    while k < num_evaluations:
+        state = observation
+
+        actions, terminal_reward = mpc.get_actions(torch.tensor(state, device=device))
+        action = actions[0]
+        if discerte_action:
+            action = action.cpu().numpy()[0]
         else:
-            env = NormalizedBoxEnv(ENVS[variant['env_name']](**variant['env_params']))
-        env.seed(seed)
+            action = action.cpu().numpy()
 
-        th = mpc_parameters[env_name]['time_horizon']
-        num_rollouts = mpc_parameters[env_name]['num_rollouts']
-        num_elites = 50
-        num_iterations = 5
-        max_action = mpc_parameters[env_name]['max_action']
-        mountainCar = env_name == 'mountainCar'
+        observation, reward, done, info = env.step(action)
 
-        simulators = [Dynamics(simulator, env, discerte_action, N, tt, device) for simulator in simulators_]
-        mpc = MPC_M(dynamics_func=simulators, state_dimen=state_dimension, action_dimen=action_dimension,
-                    time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites,
-                    num_iterations=num_iterations, disceret_action=discerte_action, mountain_car=mountainCar,
-                    max_action=max_action)
+        sum_reward += reward
+        #             if mountainCar and terminal_reward < mpc._rollout_function._time_horizon -5:
+        #                mpc._rollout_function._time_horizon = int(terminal_reward.item())+5
 
-        sum_reward = 0
-        observation = env.reset()
-        k = 0
-        i = 0
-        while k < num_evaluations:
-            state = observation
-
-            actions, terminal_reward = mpc.get_actions(torch.tensor(state, device=device))
-            action = actions[0]
-            if discerte_action:
-                action = action.cpu().numpy()[0]
-            else:
-                action = action.cpu().numpy()
-
-            observation, reward, done, info = env.step(action)
-
-            sum_reward += reward
-            #             if mountainCar and terminal_reward < mpc._rollout_function._time_horizon -5:
-            #                mpc._rollout_function._time_horizon = int(terminal_reward.item())+5
-
-            if i % 50 == 0:
-                print(f"Reward so far for agent {tt} ,  timestep {i} ,  {k}-th episode: {sum_reward}")
-            i += 1
-            if done:
-                i = 0
-                print(f"Reward for agent {tt} in the {k}-th episode: {sum_reward}")
-                observation = env.reset()
-                k += 1
-                res[j, :] = [k, tt, sum_reward]
-                j += 1
-                sum_reward = 0
-                mpc = MPC_M(dynamics_func=simulators, state_dimen=state_dimension, action_dimen=action_dimension,
-                            time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites,
-                            num_iterations=num_iterations, disceret_action=discerte_action, max_action=max_action,
-                            mountain_car=mountainCar)
+        if i % 50 == 0:
+            print(f"Reward so far for agent {test_id} ,  timestep {i} ,  {k}-th episode: {sum_reward}")
+            res[j, :] = [k, i, test_id, sum_reward]
+            j += 1
+        i += 1
+        if done:
+            print(f"Reward for agent {test_id} in the {k}-th episode: {sum_reward}")
+            observation = env.reset()
+            res[j, :] = [k, i, test_id, sum_reward]
+            k += 1
+            i = 0
+            j += 1
+            sum_reward = 0
+            mpc = MPC_M(dynamics_func=simulators, state_dimen=state_dimension, action_dimen=action_dimension,
+                        time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites,
+                        num_iterations=num_iterations, disceret_action=discerte_action, max_action=max_action,
+                        mountain_car=mountainCar)
 
         env.close()
-    res = pd.DataFrame(res, columns=['trial', 'agent', 'reward'])
-    res.to_csv(f'simulator/mpc_results/mpc_sim_{simulators_[0]}.csv')
+    res = pd.DataFrame(res, columns=['trial', 'step', 'agent', 'reward'])
+    res.to_csv(f'simulator/mpc_results_ours/mpc_sim_{filename}.csv', mode='a', header=False)
 
 
 ##### Fixed Parameters ####
 
 # TODO: check hyperparameters for walker-rand-params
-action_layers = {'mountainCar': [50], 'cartPole': [50], 'halfCheetah': [512, 512], 'walker-rand-params': [512, 512]}
-batch_size = {'mountainCar': 512, 'cartPole': 64, 'halfCheetah': 1024, 'walker-rand-params': 1024}
-normalize = {'mountainCar': False, 'cartPole': False, 'halfCheetah': True, 'walker-rand-params': True}
-state_layers = {'mountainCar': [256], 'cartPole': [256], 'halfCheetah': [512, 512, 512, 512], 'walker-rand-params': [512, 512, 512, 512]}
-policy_class = {'mountainCar': 'DQN', 'cartPole': 'DQN', 'halfCheetah': 'TD3', 'slimHumanoid': 'TD3', 'walker-rand-params': 'TD3'}
+action_layers = {'mountainCar': [50], 'cartPole': [50], 'halfCheetah': [512, 512],
+                 'walker-rand-params': [512, 512], 'half-cheetah-rand-params': [512, 512],
+                 'hopper-rand-params': [512, 512], 'slim-humanoid-rand-params': [512, 512]}
+batch_size = {'mountainCar': 512, 'cartPole': 64, 'halfCheetah': 1024,
+              'walker-rand-params': 1024, 'half-cheetah-rand-params': 1024,
+              'hopper-rand-params': 1024, 'slim-humanoid-rand-params': 1024 }
+normalize = {'mountainCar': False, 'cartPole': False, 'halfCheetah': True,
+             'walker-rand-params': True, 'half-cheetah-rand-params': True,
+             'hopper-rand-params': True, 'slim-humanoid-rand-params': True}
+state_layers = {'mountainCar': [256], 'cartPole': [256], 'halfCheetah': [512, 512, 512, 512],
+                'walker-rand-params': [512, 512, 512, 512], 'half-cheetah-rand-params': [512, 512, 512, 512],
+                'hopper-rand-params': [512, 512, 512, 512], 'slim-humanoid-rand-params': [512, 512, 512, 512]}
+policy_class = {'mountainCar': 'DQN', 'cartPole': 'DQN', 'halfCheetah': 'TD3', 'slimHumanoid': 'TD3',
+                'walker-rand-params': 'TD3', 'half-cheetah-rand-params': 'TD3',
+                'hopper-rand-params': 'TD3', 'slim-humanoid-rand-params': 'TD3'}
 mpc_parameters = {'mountainCar':
     {
         'time_horizon': 50, 'num_rollouts': 1000, "max_action": None
@@ -471,7 +535,19 @@ mpc_parameters = {'mountainCar':
     'walker-rand-params':
         {
             'time_horizon': 30, 'num_rollouts': 200, "max_action": 1
-        }
+        },
+    'half-cheetah-rand-params':
+        {
+            'time_horizon': 30, 'num_rollouts': 200, "max_action": 1
+        },
+    'hopper-rand-params':
+        {
+            'time_horizon': 30, 'num_rollouts': 200, "max_action": 1
+        },
+    'slim-humanoid-rand-params':
+        {
+            'time_horizon': 30, 'num_rollouts': 200, "max_action": 1
+        },
 }
 
 discerte_action_envs = {'mountainCar', 'cartPole'}
@@ -495,7 +571,11 @@ parser.add_argument('--iterations', type=int, default=300)
 parser.add_argument('--adapt_iterations', type=int, default=300)
 parser.add_argument('--config', type=str, default='exp_config/walker_rand_params.json')
 parser.add_argument('--seed', type=int, default=42)
+
+parser.add_argument('--skip_train', action="store_true")
 parser.add_argument('--debug', action="store_true")
+parser.add_argument('--eval_train', action="store_true")
+parser.add_argument('--debug_task', type=int, default=0)
 
 parser.set_defaults(delta=True)
 parser.set_defaults(normalize_state=True)
@@ -517,17 +597,32 @@ simulators = []
 
 env_config = get_environment_config(args.env)
 # TODO: make arguments for data_dir, n_trj, tasks, ratio
-data_dir = '/home/junsu/workspace/faster-trajectory-transformer/data/new-walker-rand-params'
-N_train = env_config['number_of_train_units']
-N_test = env_config['number_of_test_units']
+if args.env == 'walker-rand-params':
+    data_dir = '/home/junsu/workspace/faster-trajectory-transformer/data/new-walker-rand-params'
+elif args.env == 'half-cheetah-rand-params':
+    data_dir = '/home/changyeon/cheetah-rand-params'
+elif args.env == 'hopper-rand-params':
+    data_dir = '/home/changyeon/hopper-rand-params'
+
+# N_train = env_config['number_of_train_units']
+# N_test = env_config['number_of_test_units']
 if args.debug:
-    N_train = 2
-    N_test = 2
+    N_train = 24
+    N_test = 4  #24
+    N = 24
+else:
+    N_train = 20
+    N_test = 24
+    N = 24
+    # N = N_train + N_test
 
-N = N_train + N_test
-
-train_tasks = range(0, N_train)
-test_tasks = range(N_train, N_train + N_test)
+if args.debug:
+    # train_tasks = test_tasks = range(0, 24)
+    train_tasks = range(0, 20)
+    test_tasks = range(20, 24)
+else:
+    train_tasks = range(0, 20)
+    test_tasks = range(20, 24)
 N_train_idxs = env_config['number_of_train_idxs']
 N_test_adapt_idxs = env_config['number_of_test_adapt_idxs']
 N_test_pred_idxs = env_config['number_of_test_pred_idxs']
@@ -536,30 +631,41 @@ train_idxs = range(0, N_train_idxs)
 test_adapt_idxs = range(0, N_test_adapt_idxs)
 test_pred_idxs = range(N_test_adapt_idxs, N_test_adapt_idxs + N_test_pred_idxs)
 data_train = offline_dataset(data_dir=data_dir, tasks=train_tasks, idxs=train_idxs, ratio=1.0)
-data_test_adapt = offline_dataset(data_dir=data_dir, tasks=test_tasks, idxs=test_adapt_idxs, ratio=1.0)
-data_test_pred = offline_dataset(data_dir=data_dir, tasks=test_tasks, idxs=test_pred_idxs, ratio=1.0)
+# data_test_adapt = offline_dataset(data_dir=data_dir, tasks=test_tasks, idxs=test_adapt_idxs, ratio=1.0)
+# data_test_pred = offline_dataset(data_dir=data_dir, tasks=test_tasks, idxs=test_pred_idxs, ratio=1.0)
 
 # train and test simulators
 for i in range(args.num_simulators):
     print('==' * 10)
     print(f'Train the {i}-th simulator')
     print('==' * 10)
-    filename = f'{args.dataname}_{args.lag}_{args.r}_{delta}_{i}_{args.trial}'
-    train(args.dataname, data_train, data_test_adapt, N, args.env, args.r, device, normalize_state=args.normalize_state,
-          normalize_output=args.normalize_output, iterations=args.iterations, adapt_iterations=args.adapt_iterations,
-          filename=filename, debug=args.debug)
+    filename = f'{args.dataname}_{args.lag}_{args.r}_{delta}_{i}_{args.trial}_seed_{args.seed}'
+    if not args.skip_train:
+        train(args.dataname, data_train, N, args.env, args.r, device, normalize_state=args.normalize_state,
+              normalize_output=args.normalize_output, iterations=args.iterations, adapt_iterations=args.adapt_iterations,
+              filename=filename, debug=args.debug)
     simulators.append(filename)
 
-# test simulators prediction accuracy
-print('==' * 10)
-print(f'Test the prediction error for simulators')
-print('==' * 10)
-test_simulators_ens(simulators, args.env, data_test_pred, device, args.num_episodes, N, env_config, T=50)
+    # test simulators prediction accuracy
+    print('==' * 10)
+    print(f'Test the prediction error for simulators')
+    print('==' * 10)
+    eval_tasks_MSE = []
+    for test_id in reversed(test_tasks):
+        data_test_adapt = offline_dataset(data_dir=data_dir, tasks=range(test_id, test_id+1), idxs=test_adapt_idxs, ratio=1.0)
+        data_test_pred = offline_dataset(data_dir=data_dir, tasks=range(test_id, test_id+1), idxs=test_pred_idxs, ratio=1.0)
+        MSE, sims = test_simulators_ens(simulators, args.env, data_test_adapt, data_test_pred, device, args.num_episodes, N, env_config,
+                                  adapt_iteration=args.adapt_iterations, task_id=test_id, T=50)
+        eval_tasks_MSE.append(MSE)
+        np.save(f'simulator/results/{simulators[0]}_metrics.npy', np.array(eval_tasks_MSE))
 
-print('==' * 10)
-print(f'Evaluate Average Reward via MPC')
-print('==' * 10)
-eval_policy(simulators, args.env, args.num_mpc_evals, N, args.config, args.seed, device)
-# Estimate average reward
+        print('==' * 10)
+        print(f'Evaluate Average Reward via MPC')
+        print('==' * 10)
+        # for test_id in test_tasks:
+        mpc_result_name = f'{args.dataname}_{args.lag}_{args.r}_{delta}_{args.trial}_seed_{args.seed}'
+        eval_policy(sims, mpc_result_name, args.env, test_id, args.num_mpc_evals, N, args.config, args.seed, device)
+    # eval_policy(simulators, args.env, test_tasks, args.num_mpc_evals, N, args.config, args.seed, device)
+    # Estimate average reward
 
 

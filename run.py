@@ -46,7 +46,48 @@ class Dynamics(DynamicsFunc):
         next_states = self.sim.step(states.clone(), actions, self.unit)[0]
         objective_cost = -1*self.reward_fun(states, actions, next_states)
         dones = self.done_fn(next_states) 
-        return next_states, objective_cost, dones 
+        return next_states, objective_cost, dones
+
+
+class TrueDynamics(DynamicsFunc):
+    """
+
+    """
+
+    def __init__(self, true_env, env, discerte_action, N, unit, num_rollouts, device) -> Tuple[Tensor, Tensor]:
+        self.env = env
+        if discerte_action:
+            action_dim = self.env.action_space.n
+        else:
+            action_dim = self.env.action_space.shape[0]
+        state_dim = self.env.observation_space.shape[0]
+        # env_name = sim.split('_')[0]
+        # rank = int(sim.split('_')[5])
+        # lag = int(sim.split('_')[4])
+        # delta = sim.split('_')[6][:5] == 'delta'
+        # self.delta = delta
+        # self.sim = Simulator(N, action_dim, state_dim, rank, device, lags=lag, state_layers=state_layers[env_name],
+        #                      action_layers=action_layers[env_name], continous_action=not discerte_action, delta=delta)
+        # self.sim.load(f'simulator/trained/{sim}')
+        self.true_env = [true_env for _ in range(num_rollouts)]
+        self.N = N
+        self.reward_fun = self.env.torch_reward_fn()
+        self.done_fn = self.env.torch_done_fn()
+        self.unit = unit
+        self.device = device
+
+    def step(self, states: Tensor, actions: Tensor) -> Tuple[Tensor, Tensor]:
+
+        if len(actions.shape) == 1:
+            actions = actions.reshape(-1, 1)
+
+        # next_states = self.sim.step(states.clone(), actions, self.unit)[0]
+        for env in self.true_env:
+            env._set_state(states.clone())
+            next_states = env.step(actions)
+        objective_cost = -1 * self.reward_fun(states, actions, next_states)
+        dones = self.done_fn(next_states)
+        return next_states, objective_cost, dones
 
 
 def test_simulator(simulator_name, env_name, device, num_episodes, T = 50):
@@ -234,7 +275,7 @@ def test_simulators_ens(simulators, env_name, device, num_episodes, T = 50):
 
 
 
-def format_data(data, number_of_units, device, delta, discerte_action, action_dim, lags = 1):
+def format_data(data, number_of_units, device, delta, discerte_action, action_dim, lags = 1, time_cut=1000):
   '''
   Return data formatted for pytorch.
   '''
@@ -246,8 +287,8 @@ def format_data(data, number_of_units, device, delta, discerte_action, action_di
   state_dim = data[0]['observations'][0].shape[0]
   for trajectory in data[:]:
     metrics_lags = np.zeros([state_dim * lags])
-    for t, (action, metrics, metrics_new) in enumerate(zip(trajectory['actions'], 
-                                            trajectory['observations'], trajectory['next_observations'])):
+    for t, (action, metrics, metrics_new) in enumerate(zip(trajectory['actions'][:time_cut],
+                                            trajectory['observations'][:time_cut], trajectory['next_observations'][:time_cut])):
       
       metrics_lags[state_dim:] = metrics_lags[:-state_dim]
       metrics_lags[:state_dim] = metrics
@@ -281,7 +322,7 @@ def format_data(data, number_of_units, device, delta, discerte_action, action_di
 
 
 
-def train(dataname,env, rank, device, delta = True, normalize_state = True, normalize_output = True, lag =1, iterations = 300, filename = None):
+def train(dataname,env, rank, time_cut, device, delta = True, normalize_state = True, normalize_output = True, lag =1, iterations = 300, filename = None):
     # config env
     env_config = get_environment_config(env)
 
@@ -299,7 +340,7 @@ def train(dataname,env, rank, device, delta = True, normalize_state = True, norm
     # load data
     data_train = load_samples('datasets/'+dataname+'.pkl')
     N = env_config['number_of_units']
-    u_data, i_data, m_data, y_data = format_data(data_train[:], N, device, delta, discerte_action, action_dim, lag)
+    u_data, i_data, m_data, y_data = format_data(data_train[:], N, device, delta, discerte_action, action_dim, lag, time_cut)
     loss_fn = torch.nn.MSELoss(reduction='mean')  
     state_dim = y_data.shape[1]
 
@@ -351,8 +392,12 @@ def eval_policy(simulators_, env_name, num_evaluations, device):
         num_iterations = 5
         max_action = mpc_parameters[env_name]['max_action']
         mountainCar = env_name == 'mountainCar'
-        
-        simulators = [Dynamics(simulator, env, discerte_action,N, tt, device) for simulator in simulators_]
+
+        if simulators_ is None:
+            print("use true dynamics")
+            simulators = [TrueDynamics(env, env, discerte_action, N, tt, num_rollouts, device)]
+        else:
+            simulators = [Dynamics(simulator, env, discerte_action,N, tt, device) for simulator in simulators_]
         mpc = MPC_M(dynamics_func=simulators, state_dimen=state_dimension, action_dimen=action_dimension,
                             time_horizon=th, num_rollouts=num_rollouts, num_elites=num_elites, 
                             num_iterations=num_iterations, disceret_action = discerte_action, mountain_car = mountainCar, max_action = max_action)
@@ -440,8 +485,12 @@ parser.add_argument('--num_episodes', type=int, default=200, help='gpu device id
 parser.add_argument('--num_mpc_evals', type=int, default=20, help='number of MPC episodes')
 parser.add_argument('--num_simulators', type=int, default=5, help='number of models')
 parser.add_argument('--iterations', type=int, default=300)
-parser.add_argument('--debug', action="store_true")
 
+parser.add_argument('--skip_train', action="store_true")
+parser.add_argument('--debug', action="store_true")
+parser.add_argument('--use_true_dynamics', action="store_true")
+parser.add_argument('--skip_pred', action="store_true")
+parser.add_argument('--time_cut', type=int, default=1000)
 
 
 parser.set_defaults(delta=True)
@@ -466,7 +515,8 @@ for i in range(args.num_simulators):
   print(f'Train the {i}-th simulator')
   print('=='*10)
   filename = f'{args.dataname}_{args.lag}_{args.r}_{delta}_{i}_{args.trial}'
-  train(args.dataname, args.env, args.r, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = args.iterations, filename = filename)
+  if not args.skip_train:
+    train(args.dataname, args.env, args.r, args.time_cut, device, normalize_state = args.normalize_state, normalize_output = args.normalize_output, iterations = args.iterations, filename = filename)
   simulators.append(filename)
 
 
@@ -474,12 +524,16 @@ for i in range(args.num_simulators):
 print('=='*10)
 print(f'Test the prediction error for simulators')
 print('=='*10)
-test_simulators_ens(simulators, args.env, device, args.num_episodes, T = 50)
+if not args.skip_pred:
+    test_simulators_ens(simulators, args.env, device, args.num_episodes, T = 50)
 
 print('=='*10)
 print(f'Evaluate Average Reward via MPC')
 print('=='*10)
-eval_policy(simulators, args.env, args.num_mpc_evals, device)
+if args.use_true_dynamics:
+    eval_policy(None, args.env, args.num_mpc_evals, device)
+else:
+    eval_policy(simulators, args.env, args.num_mpc_evals, device)
 # Estimate average reward
 
 

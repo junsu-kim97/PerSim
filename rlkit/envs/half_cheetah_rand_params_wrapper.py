@@ -1,8 +1,9 @@
 import numpy as np
 import json
-from rand_param_envs.walker2d_rand_params import Walker2DRandParamsEnv
+from rand_param_envs.half_cheetah_rand_params import HalfCheetahRandParamsEnv
 
 from . import register_env
+
 
 def read_log_params(log_file):
     params_dict = {}
@@ -13,16 +14,16 @@ def read_log_params(log_file):
         if "'" in line:
             if ")" in line:
                 last_entry = line.split(")")[0].split("[")[1].split("]")[0].split(",")
-                #print(last_entry)
+                # print(last_entry)
                 last_entry_float = [float(s) for s in last_entry]
                 params_dict[cur_key].append(np.array(last_entry_float))
             key = line.split("'")[1]
-            #print('key is %s' %key)
+            # print('key is %s' %key)
             cur_key = key
             params_dict[key] = []
             if "(" in line:
                 first_entry = line.split("(")[1].split("[")[2].split("]")[0].split(",")
-                #print(first_entry)
+                # print(first_entry)
                 first_entry_float = [float(s) for s in first_entry]
                 params_dict[cur_key].append(np.array(first_entry_float))
         else:
@@ -46,23 +47,23 @@ def read_log_params_new(log_file):
     return params_dict
 
 
-@register_env("walker-rand-params")
-class WalkerRandParamsWrappedEnv(Walker2DRandParamsEnv):
-    def __init__(self, n_tasks=2, randomize_tasks=True, max_episode_steps=1000):
-        super(WalkerRandParamsWrappedEnv, self).__init__()
+@register_env("cheetah-rand-params")
+class HalfCheetahRandParamsWrappedEnv(HalfCheetahRandParamsEnv):
+    def __init__(self, n_tasks=2, randomize_tasks=True, max_episode_steps=600):
+        super(HalfCheetahRandParamsWrappedEnv, self).__init__()
         self.randomize_tasks = randomize_tasks
         self.tasks = self.sample_tasks(n_tasks)
         self.reset_task(0)
-        self._max_episode_steps = max_episode_steps
+        # TODO: roll back to 200 / 600
+        self._max_episode_steps = 600
+        # self._max_episode_steps = max_episode_steps
         self.env_step = 0
 
     def sample_tasks(self, n_tasks):
         """
         Generates randomized parameter sets for the mujoco env
-
         Args:
             n_tasks (int) : number of different meta-tasks needed
-
         Returns:
             tasks (list) : an (n_tasks) length list of tasks
         """
@@ -70,34 +71,45 @@ class WalkerRandParamsWrappedEnv(Walker2DRandParamsEnv):
         param_sets = []
         if self.randomize_tasks:
             for i in range(n_tasks):
+
                 new_params = {}
                 # body mass -> one multiplier for all body parts
-                if 'body_mass' in self.rand_params:
-                    body_mass_multiplyers = np.array(1.5) ** np.random.uniform(-self.log_scale_limit, self.log_scale_limit,  size=self.model.body_mass.shape)
-                    new_params['body_mass'] = self.init_params['body_mass'] * body_mass_multiplyers
+                if "body_mass" in self.rand_params:
+                    body_mass_multiplyers = np.array(1.5) ** np.random.uniform(
+                        -self.log_scale_limit, self.log_scale_limit, size=self.model.body_mass.shape
+                    )
+                    new_params["body_mass"] = self.init_params["body_mass"] * body_mass_multiplyers
 
                 # body_inertia
-                if 'body_inertia' in self.rand_params:
-                    body_inertia_multiplyers = np.array(1.5) ** np.random.uniform(-self.log_scale_limit, self.log_scale_limit,  size=self.model.body_inertia.shape)
-                    new_params['body_inertia'] = body_inertia_multiplyers * self.init_params['body_inertia']
+                if "body_inertia" in self.rand_params:
+                    body_inertia_multiplyers = np.array(1.5) ** np.random.uniform(
+                        -self.log_scale_limit, self.log_scale_limit, size=self.model.body_inertia.shape
+                    )
+                    new_params["body_inertia"] = body_inertia_multiplyers * self.init_params["body_inertia"]
 
                 # damping -> different multiplier for different dofs/joints
-                if 'dof_damping' in self.rand_params:
-                    dof_damping_multipliers = np.array(1.3) ** np.random.uniform(-self.log_scale_limit, self.log_scale_limit, size=self.model.dof_damping.shape)
-                    new_params['dof_damping'] = np.multiply(self.init_params['dof_damping'], dof_damping_multipliers)
+                if "dof_damping" in self.rand_params:
+                    dof_damping_multipliers = np.array(1.3) ** np.random.uniform(
+                        -self.log_scale_limit, self.log_scale_limit, size=self.model.dof_damping.shape
+                    )
+                    new_params["dof_damping"] = np.multiply(self.init_params["dof_damping"], dof_damping_multipliers)
 
-            	# friction at the body components
-                if 'geom_friction' in self.rand_params:
-                    dof_damping_multipliers = np.array(1.5) ** np.random.uniform(-self.log_scale_limit, self.log_scale_limit, size=self.model.geom_friction.shape)
-                    new_params['geom_friction'] = np.multiply(self.init_params['geom_friction'], dof_damping_multipliers)
+                # friction at the body components
+                if "geom_friction" in self.rand_params:
+                    dof_damping_multipliers = np.array(1.5) ** np.random.uniform(
+                        -self.log_scale_limit, self.log_scale_limit, size=self.model.geom_friction.shape
+                    )
+                    new_params["geom_friction"] = np.multiply(
+                        self.init_params["geom_friction"], dof_damping_multipliers
+                    )
 
                 param_sets.append(new_params)
         else:
             for i in range(n_tasks):
                 # task_params = read_log_params(f"./data_copy/walker_randparam_new/goal_idx{i}/log.txt")
                 # task_params = read_log_params(f"/home/changyeon/CaDM_MerPO/data/walker-rand-params/goal_idx{i}/log.txt")
-                # task_params = read_log_params_new(f"/home/changyeon/CaDM_MerPO/data/new-walker-rand-params/goal_idx{i}/log.txt")
-                task_params = read_log_params_new(f"/home/junsu/workspace/MerPO_model/data/new-walker-rand-params/goal_idx{i}/log.txt")
+                # task_params = read_log_params_new(f"/home/changyeon/CaDM_MerPO/data/cheetah-rand-params/goal_idx{i}/log.txt")
+                task_params = read_log_params_new(f"/home/changyeon/cheetah-rand-params/goal_idx{i}/log.txt")
                 param_sets.append(task_params)
 
         return param_sets
@@ -124,22 +136,22 @@ class WalkerRandParamsWrappedEnv(Walker2DRandParamsEnv):
         self.reset()
 
 
-@register_env('sparse-walker-rand-params')
-class SparseWalkerRandParamsWrappedEnv(WalkerRandParamsWrappedEnv):
-    def __init__(self, n_tasks=2, randomize_tasks=True, max_episode_steps=200, goal_radius=0.5):
-        super(SparseWalkerRandParamsWrappedEnv, self).__init__(n_tasks, randomize_tasks, max_episode_steps)
+@register_env("sparse-cheetah-rand-params")
+class SparseHalfCheetahRandParamsWrappedEnv(HalfCheetahRandParamsWrappedEnv):
+    def __init__(self, n_tasks=2, randomize_tasks=True, max_episode_steps=1000, goal_radius=0.5):
+        super(SparseHalfCheetahRandParamsWrappedEnv, self).__init__(n_tasks, randomize_tasks, max_episode_steps)
         self.goal_radius = goal_radius
 
     def step(self, action):
         ob, reward, done, d = super().step(action)
         sparse_reward = self.sparsify_rewards(reward)
-        #if reward >= self.goal_radius:
+        # if reward >= self.goal_radius:
         #    sparse_reward += 1
-        d.update({'sparse_reward': sparse_reward})
+        d.update({"sparse_reward": sparse_reward})
         return ob, reward, done, d
 
     def sparsify_rewards(self, r):
-        ''' zero out rewards when outside the goal radius '''
-        mask = (r >= self.goal_radius)
+        """zero out rewards when outside the goal radius"""
+        mask = r >= self.goal_radius
         r = r * mask
         return r

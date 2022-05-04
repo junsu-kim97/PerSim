@@ -7,7 +7,7 @@
         "randomize_tasks": 0
     },
     "util_params": {
-        "base_log_dir": "/home/junsu/workspace/MerPO/logs/cheetah-rand-params/20220419/inner_need_delete"
+        "base_log_dir": "/home/junsu/workspace/MerPO/logs/half-cheetah-rand-params/20220419/inner_need_delete"
     },
     "algo_params": {
         "real_data_ratio": 0.5,
@@ -46,7 +46,7 @@
         "lagrange_thresh":5.0,
         "type_q_backup":"medium",
         "finetune_model": "inner",
-        "checkpoint_paths_0": "/home/junsu/workspace/MerPO/MerPO_model/author_model/cheetah/checkpoint_Iter_1230",
-        "checkpoint_paths_1": "/home/junsu/workspace/MerPO/MerPO_model/author_model/cheetah/test_checkpoint_Iter_1230"
+        "checkpoint_paths_0": "/home/junsu/workspace/MerPO/MerPO_model/author_model/half-cheetah/checkpoint_Iter_1230",
+        "checkpoint_paths_1": "/home/junsu/workspace/MerPO/MerPO_model/author_model/half-cheetah/test_checkpoint_Iter_1230"
     }
 }

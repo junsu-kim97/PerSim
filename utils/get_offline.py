@@ -46,7 +46,17 @@ def offline_dataset(data_dir, tasks, idxs, ratio=1.0, append_reward_in_obs=True)
             done = real_done
 
             if append_reward_in_obs:
-                obs = np.concatenate([np.array(reward).reshape(1), obs])
+                if idx == 0:
+                    # TODO: check for walker intial reward
+                    if 'walker' in data_dir or 'hopper' in data_dir:
+                        obs_reward = 1.
+                    elif 'half-cheetah' in data_dir:
+                        obs_reward = 0.
+                    else:
+                        raise NotImplementedError
+                else:
+                    obs_reward = dataset[idx - 1][2]
+                obs = np.concatenate([np.array(obs_reward).reshape(1), obs])
             obs_.append(obs)
             action_.append(action)
             reward_.append(reward)
@@ -76,8 +86,8 @@ def format_data_from_merpo_style(data, number_of_units, device, delta, discerte_
             if t+1 < len(trajectory['states']):
                 metrics_new = trajectory['states'][t+1]
             else:
-                # TODO: at the end of episode, find better way to set next states
-                metrics_new = trajectory['states'][t]
+                # metrics_new = trajectory['states'][t]
+                break
 
             metrics_lags[state_dim:] = metrics_lags[:-state_dim]
             metrics_lags[:state_dim] = metrics

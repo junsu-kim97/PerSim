@@ -109,7 +109,7 @@ class Simulator(Env):
 
         # get unit vector
         units = torch.zeros([n,self.number_of_units], device = self.device)
-        units[:,unit] = 1
+        units[:, unit] = 1
         
         if not self.continous_action:
             action_ = torch.zeros([n,self.action_d]).to(self.device)

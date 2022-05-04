@@ -24,3 +24,8 @@ To run PerSim, run the following script:
 
 Choose env from {`mountainCar`, `cartPole`, `halfCheetah`}, and dataname from the available datasets in the `datasets` directory. e.g., `cartPole_pure_0.0_0`. Best values for r is 3,5,15 for mountainCar, cartPole, and halfCheetah respectively.
 
+./scripts/train_our_data.sh 4 walker-rand-params walker-rand-params_ours-v3_0.0_0 15
+
+./scripts/train_our_data_half_cheetah.sh 2 half-cheetah-rand-params half-cheetah-rand-params_ours-0503-v3-300-300_0.0_0 15 300 300
+
+./scripts/train_our_data_debug_half_cheetah.sh 1 half-cheetah-rand-params cheetah_debug_0.0_0 15 300 1

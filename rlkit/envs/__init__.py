@@ -49,9 +49,10 @@ for file in os.listdir(os.path.dirname(__file__)):
                     importlib.import_module('rlkit.envs.' + module)
                     _tabulate(module)
 
-                if file.startswith("walker_rand_params"):
-                    module = file[: file.find(".py")]
-                    importlib.import_module("rlkit.envs." + module)
+                if file.startswith('walker_rand_params') or file.startswith("cheetah_rand_params") or file.startswith(
+                        "hopper_rand_params"):
+                    module = file[:file.find('.py')]
+                    importlib.import_module('rlkit.envs.' + module)
                     _tabulate(module)
 
             else:
@@ -62,10 +63,11 @@ for file in os.listdir(os.path.dirname(__file__)):
                     importlib.import_module('rlkit.envs.' + module)
                     _tabulate(module)
 
-                if file.startswith('walker_rand_params'):
+                if file.startswith('walker_rand_params') or file.startswith("cheetah_rand_params") or file.startswith("hopper_rand_params"):
                     module = file[:file.find('.py')]
                     importlib.import_module('rlkit.envs.' + module)
                     _tabulate(module)
+
     else:
         if file.endswith('.py') and file.startswith('non_mujoco'):
             module = file[:file.find('.py')]

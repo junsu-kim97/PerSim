@@ -1,5 +1,5 @@
 {
-    "env_name": "cheetah-rand-params",
+    "env_name": "hopper-rand-params",
     "n_train_tasks": 20,
     "n_eval_tasks": 4,
     "env_params": {
@@ -36,7 +36,7 @@
         "alpha_init": 1e4,
         "alpha_max": 2e4,
         "dump_eval_paths": false,
-        "data_dir": "/home/changyeon/cheetah-rand-params",
+        "data_dir": "/home/changyeon/hopper-rand-params",
         "layer_num": 5,
         "num_test_steps_per_itr": 1,
         "test_only_inner_step": 500,

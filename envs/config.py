@@ -46,13 +46,14 @@ def get_environment_config(env):
         config['no_trajectories'] = 1
 
     # TODO: check hyperparameters for walker-rand-params
-    elif config['env'] == 'walker-rand-params':
+    elif config['env'] in ['walker-rand-params', 'half-cheetah-rand-params',
+                           'hopper-rand-params', 'slim-humanoid-rand-params']:
         train_mass_scale_set = [None, None] # test 0.2, ,1.0, 1.8
         train_damping_scale_set = [None, None] # test 0.2, ,1.0, 1.8
         config['covariates'] = [None, None]
         config['env_default'] = [None, None]
         config['train_env_range'] = [None, None]
-        config['test_env'] =  [[None, None], [None, None], [None, None], [None, None], [None, None]]
+        config['test_env'] =  [[None, None]]
         config['train_policy'] = [[None, None], [None, None], [None, None], [None, None]]
         config['trajectory_length'] = None
         config['number_of_test_rollouts'] = None
@@ -62,11 +63,28 @@ def get_environment_config(env):
         config['number_of_train_idxs'] = 50
         config['number_of_test_adapt_idxs'] = 40
         config['number_of_test_pred_idxs'] = 10
-        config['env'] = ENVS['walker-rand-params']
+        config['env'] = ENVS[config['env']]
         config['no_trajectories'] = None
-        
+    # elif config['env'] == 'half-cheetah-rand-params':
+    #     train_mass_scale_set = [None, None] # test 0.2, ,1.0, 1.8
+    #     train_damping_scale_set = [None, None] # test 0.2, ,1.0, 1.8
+    #     config['covariates'] = [None, None]
+    #     config['env_default'] = [None, None]
+    #     config['train_env_range'] = [None, None]
+    #     config['test_env'] =  [[None, None]]
+    #     config['train_policy'] = [[None, None], [None, None], [None, None], [None, None]]
+    #     config['trajectory_length'] = None
+    #     config['number_of_test_rollouts'] = None
+    #     config['number_of_train_units'] = 20
+    #     config['number_of_test_units'] = 4
+    #
+    #     config['number_of_train_idxs'] = 50
+    #     config['number_of_test_adapt_idxs'] = 40
+    #     config['number_of_test_pred_idxs'] = 10
+    #     config['env'] = ENVS['cheetah-rand-params']
+    #     config['no_trajectories'] = None
     else:
-        raise ValueError('Choose from available envs {"slimHumanoid", "ant", "halfCheetah", "mountainCar", "cartPole", "walker-rand-params"}, refer to envs/config.py')
+        raise ValueError('Choose from available envs {"slimHumanoid", "ant", "halfCheetah", "mountainCar", "cartPole", "walker-rand-params", "half-cheetah-rand-params"}, refer to envs/config.py')
 
 
     return config
